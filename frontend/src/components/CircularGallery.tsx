@@ -11,7 +11,6 @@ import {
     Transform,
 } from 'ogl';
 import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 
 // --- Utilities ---
 function lerp(p1: number, p2: number, t: number): number {
@@ -131,6 +130,8 @@ class Media {
         font,
         id,
         gap = 0.5,
+        showText = true,
+        visibleCount = 7,
     }: any) {
         Object.assign(this, {
             geometry,
@@ -149,12 +150,14 @@ class Media {
             font,
             id,
             gap,
+            showText,
+            visibleCount,
             extra: 0,
             speed: 0,
         });
         this.createShader();
         this.createMesh();
-        this.createTitle();
+        if (this.showText) this.createTitle();
         this.onResize();
     }
 
@@ -215,7 +218,7 @@ class Media {
         // Uniform X positioning — equal spacing guaranteed
         this.plane.position.x = baseX;
 
-        // All images stay same size — keeps gaps perfectly equal
+        // Keep every card the same size so the gap stays constant while scrolling.
         this.plane.scale.x = this.baseScaleX;
         this.plane.scale.y = this.baseScaleY;
 
@@ -255,13 +258,16 @@ class Media {
         if (screen) this.screen = screen;
         if (viewport) this.viewport = viewport;
 
-        this.scale = this.screen.height / 1500;
+        const safeVisibleCount = Math.max(this.visibleCount, 1);
+        const usableWidth = this.viewport.width * 0.94;
+        const gapSize = usableWidth * this.gap / safeVisibleCount;
+        const cardWidth =
+            (usableWidth - gapSize * (safeVisibleCount - 1)) / safeVisibleCount;
+        const cardHeight = Math.min(cardWidth * 1.42, this.viewport.height * 0.84);
 
-        // Store base scales (used as reference for dynamic scaling in update)
-        this.baseScaleY =
-            (this.viewport.height * (900 * this.scale)) / this.screen.height;
-        this.baseScaleX =
-            (this.viewport.width * (700 * this.scale)) / this.screen.width;
+        this.baseScaleX = cardWidth;
+        this.baseScaleY = cardHeight;
+        this.computedGap = gapSize;
 
         this.plane.scale.y = this.baseScaleY;
         this.plane.scale.x = this.baseScaleX;
@@ -271,8 +277,8 @@ class Media {
             this.plane.scale.y,
         ];
 
-        this.widthTotal = (this.baseScaleX + this.gap) * this.length;
-        this.x = (this.baseScaleX + this.gap) * this.index;
+        this.widthTotal = (this.baseScaleX + this.computedGap) * this.length;
+        this.x = (this.baseScaleX + this.computedGap) * this.index;
     }
 }
 
@@ -344,6 +350,9 @@ class App {
                     borderRadius: config.borderRadius,
                     font: config.font,
                     id: data.id,
+                    gap: config.gap,
+                    showText: config.showText,
+                    visibleCount: config.visibleCount,
                 }),
         );
     }
@@ -469,6 +478,9 @@ export const CircularGallery = ({
     scrollSpeed = 2,
     scrollEase = 0.05,
     onCardClick,
+    gap = 0.5,
+    showText = true,
+    visibleCount = 7,
 }: any) => {
     const ref = useRef<HTMLDivElement>(null);
 
@@ -483,6 +495,9 @@ export const CircularGallery = ({
             scrollSpeed,
             scrollEase,
             onCardClick,
+            gap,
+            showText,
+            visibleCount,
         });
         requestAnimationFrame(() => app.update());
         return () => app.destroy();
@@ -495,6 +510,9 @@ export const CircularGallery = ({
         scrollSpeed,
         scrollEase,
         onCardClick,
+        gap,
+        showText,
+        visibleCount,
     ]);
 
     return (
@@ -505,4 +523,3 @@ export const CircularGallery = ({
         />
     );
 };
-
