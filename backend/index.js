@@ -1,8 +1,10 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const API_KEY = process.env.POLLINATIONS_API_KEY || '';
 
 app.use(cors());
 app.use(express.json());
@@ -11,8 +13,8 @@ app.get('/', (req, res) => {
   res.json({ message: 'Welcome to the GenPix API!' });
 });
 
-// POST /api/generate — free AI image generation via Pollinations.ai
-// Returns the image as a proxied blob to avoid CORS/403 issues
+// POST /api/generate — AI image generation via Pollinations.ai (gen.pollinations.ai)
+// Returns the image as a proxied blob to avoid CORS issues
 app.post('/api/generate', async (req, res) => {
   try {
     const { prompt, width = 1024, height = 1024 } = req.body;
@@ -21,18 +23,33 @@ app.post('/api/generate', async (req, res) => {
       return res.status(400).json({ error: 'A non-empty prompt is required.' });
     }
 
+    if (!API_KEY) {
+      return res.status(500).json({
+        error: 'Server misconfiguration: POLLINATIONS_API_KEY is not set. See backend/.env.example.',
+      });
+    }
+
     const encodedPrompt = encodeURIComponent(prompt.trim());
     const seed = Math.floor(Math.random() * 1000000);
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true`;
+    const imageUrl = `https://gen.pollinations.ai/image/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
 
-    // Fetch the image from Pollinations on the server side (avoids browser CORS/403)
+    // 60-second timeout to avoid hanging requests
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+
     const imageRes = await fetch(imageUrl, {
       headers: {
         'User-Agent': 'GenPix/1.0',
+        'Authorization': `Bearer ${API_KEY}`,
       },
+      signal: controller.signal,
     });
 
+    clearTimeout(timeout);
+
     if (!imageRes.ok) {
+      const errorBody = await imageRes.text().catch(() => '');
+      console.error(`Pollinations error: ${imageRes.status} ${imageRes.statusText}`, errorBody);
       return res.status(502).json({ error: 'Image generation service is currently unavailable.' });
     }
 
@@ -44,6 +61,10 @@ app.post('/api/generate', async (req, res) => {
     const buffer = await imageRes.arrayBuffer();
     return res.send(Buffer.from(buffer));
   } catch (err) {
+    if (err.name === 'AbortError') {
+      console.error('Image generation timed out after 60s');
+      return res.status(504).json({ error: 'Image generation timed out. Please try again.' });
+    }
     console.error('Image generation error:', err);
     return res.status(500).json({ error: 'Failed to generate image. Please try again.' });
   }
